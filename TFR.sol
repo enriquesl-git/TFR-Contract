@@ -252,99 +252,100 @@ contract Ownable {
 
 contract TokenFederalReserve is Ownable, StandardToken {
 
-	string public constant standard = "ERC20 TokenFederalReserve";
+    string public constant standard = "ERC20 TokenFederalReserve";
 
-	/* Public variables for the ERC20 token, defined when calling the constructor */
-	string public name;
-	string public symbol;
-	uint8 public constant decimals = 8; // hardcoded to be a constant
+    /* Public variables for the ERC20 token, defined when calling the constructor */
+    string public name;
+    string public symbol;
+    uint8 public constant decimals = 8; // hardcoded to be a constant
 
-	// Contract variables and constants
-	uint256 public constant minPrice = 10e12;
-	uint256 public buyPrice = minPrice;
-	uint256 public sellPrice = applySpread(buyPrice);
+    // Contract variables and constants
+    uint256 public constant minPrice = 10e12;
+    uint256 public buyPrice = minPrice;
+    uint256 public sellPrice = applySpread(buyPrice);
     // constant to simplify conversion of token amounts into integer form
     uint256 private constant tokenUnit = uint(10)**decimals;
     
-	// Spread in parts per 100 millions, such that expressing percentages is 
-	// just to append the postfix 'e6'. For example, 4.53% is: spread = 4.53e6
-	uint256 public spread;
+    // Spread in parts per 100 millions, such that expressing percentages is 
+    // just to append the postfix 'e6'. For example, 4.53% is: spread = 4.53e6
+    uint256 public spread;
 
-	//Declare logging events
-	event LogDeposit(address sender, uint amount);
+    //Declare logging events
+    event LogDeposit(address sender, uint amount);
 
-	/* Initializes contract with initial supply tokens to the creator of the contract */
-	function TokenFederalReserve(uint256 initialSupply, string tokenName, string tokenSymbol, uint256 tokenSpread) public {
-		balances[msg.sender] = initialSupply; // Give the creator all initial tokens
-		totalSupply = initialSupply;  // Update total supply
-		name = tokenName;             // Set the name for display purposes
-		symbol = tokenSymbol;         // Set the symbol for display purposes
-		spread = tokenSpread;         // Amount of spread in parts per 100 millions
-	}
-
-    function () public payable {
-		buy();   // Allow to buy tokens sending ether direcly to contract
-	}
-	
-    function applySpread(uint256 askPrice) private view returns (uint256 bidPrice) {
-    	bidPrice = askPrice - (spread * askPrice) / 100e6;
-    	return bidPrice;
+    /* Initializes contract with initial supply tokens to the creator of the contract */
+    function TokenFederalReserve(uint256 initialSupply, string tokenName, string tokenSymbol, uint256 tokenSpread) public {
+        balances[msg.sender] = initialSupply; // Give the creator all initial tokens
+        totalSupply = initialSupply;  // Update total supply
+        name = tokenName;             // Set the name for display purposes
+        symbol = tokenSymbol;         // Set the symbol for display purposes
+        spread = tokenSpread;         // Amount of spread in parts per 100 millions
     }
 
-	modifier status() {
+    function () public payable {
+        buy();   // Allow to buy tokens sending ether direcly to contract
+    }
+    
+    function applySpread(uint256 askPrice) private view returns (uint256 bidPrice) {
+        bidPrice = askPrice - (spread * askPrice) / 100e6;
+        return bidPrice;
+    }
+
+    modifier status() {
         _;  // modified function code should go before prices update
 
         //stablish the buy price & sell price with the spread configured in the contract
-		buyPrice = this.balance / totalSupply;
+        buyPrice = this.balance / totalSupply;
 
         if (buyPrice < minPrice) {
             buyPrice = minPrice;
         }
-		sellPrice = applySpread(buyPrice);
-	}
+        sellPrice = applySpread(buyPrice);
+    }
 
-	function deposit() public payable status returns(bool success) {
+    function deposit() public payable status returns(bool success) {
         // Check for overflows;
-		assert (this.balance + msg.value >= this.balance); // Check for overflows
+        assert (this.balance + msg.value >= this.balance); // Check for overflows
    
         //executes event to reflect the changes
-		LogDeposit(msg.sender, msg.value);
-		
-		return true;
-	}
+        LogDeposit(msg.sender, msg.value);
+        
+        return true;
+    }
 
-	function buy() public payable status {
+    function buy() public payable status {
         require (msg.sender.balance >= msg.value);  // Check if the sender has enought eth to buy
         assert (msg.sender.balance + msg.value >= msg.sender.balance); //check for overflows
          
         uint tokenAmount = (msg.value * tokenUnit) / buyPrice ;  // calculates the amount
         transfer(msg.sender, tokenAmount);
-	}
+    }
 
-	function sell(uint256 amount) public status {
+    function sell(uint256 amount) public status {
         uint tokenAmount = amount * tokenUnit;
         uint etherAmount = amount * sellPrice;
 
         transferFrom(msg.sender, this, tokenAmount);
 
-		// Sends ether to the seller. It's important
+        // Sends ether to the seller. It's important
         // to do this last to avoid recursion attacks
-		msg.sender.transfer(etherAmount);
-	}
+        msg.sender.transfer(etherAmount);
+    }
 
-	/* Approve and then communicate the approved contract in a single tx */
-	function approveAndCall(address _spender, uint256 _value, bytes _extraData) public onlyOwner returns (bool success) {    
+    /* Approve and then communicate the approved contract in a single tx */
+    function approveAndCall(address _spender, uint256 _value, bytes _extraData) public onlyOwner returns (bool success) {    
 
         tokenRecipient spender = tokenRecipient(_spender);
 
-		if (approve(_spender, _value)) {
-			spender.receiveApproval(msg.sender, _value, this, _extraData);
-			return true;
-		}
-	}
+        if (approve(_spender, _value)) {
+            spender.receiveApproval(msg.sender, _value, this, _extraData);
+            return true;
+        }
+    }
 }
 
 
 contract tokenRecipient {
     function receiveApproval(address _from, uint256 _value, address _token, bytes _extraData) public ; 
 }
+
