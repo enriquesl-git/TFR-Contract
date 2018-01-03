@@ -249,159 +249,127 @@ contract Ownable {
 //                                                           //
 ///////////////////////////////////////////////////////////////
 
-contract tokenRecipient { function receiveApproval(address _from, uint256 _value, address _token, bytes _extraData)public ; }
 
 contract TokenFederalReserve is Ownable, StandardToken {
 
-	/* Public variables of the token */
-	string public standard = "ERC20 TokenFederalReserve";
+	string public constant standard = "ERC20 TokenFederalReserve";
+
+	/* Public variables for the ERC20 token, defined when calling the constructor */
 	string public name;
 	string public symbol;
-	uint8 public decimals;
-	uint256 public totalSupply;
+	uint8 public constant decimals = 8;
 
-	//Declare public contract variables
-	
-	uint256 public minPrice=10000000000000;
-	uint256 public buyPrice=10000000000000;
-	uint256 public sellPrice=2000000000000;
+	// Contract variables and constants
+    uint256 private constant tokenUnit = uint(10)**decimals;
+	uint256 public constant spread = 5;
 
-	uint8 public spread=5;
-
-	mapping (address => bool) public frozenAccount;
-
-	/* This generates a public event on the blockchain that will notify clients */
-	event FrozenFunds(address target, bool frozen);
-
-	/* Initializes contract with initial supply tokens to the creator of the contract */
-	function token(
-		uint256 initialSupply,
-		string tokenName,
-		uint8 decimalUnits,
-		string tokenSymbol
-		) public {
-		balances[msg.sender] = initialSupply;              // Give the creator all initial tokens
-		totalSupply = initialSupply;                        // Update total supply
-		name = tokenName;                                   // Set the name for display purposes
-		symbol = tokenSymbol;                               // Set the symbol for display purposes
-		decimals = decimalUnits;                            // Amount of decimals for display purposes
-	}
-
-
-	/* Approve and then communicate the approved contract in a single tx */
-	function approveAndCall(address _spender, uint256 _value, bytes _extraData) public onlyOwner
-		returns (bool success)  {    
-		tokenRecipient spender = tokenRecipient(_spender);
-		if (approve(_spender, _value)) {
-			spender.receiveApproval(msg.sender, _value, this, _extraData);
-			return true;
-		}
-	}
+	uint256 public constant minPrice = 10e12;
+	uint256 public buyPrice = minPrice;
+	uint256 public sellPrice = applySpread(buyPrice);
 
 	//Declare logging events
 	event LogDeposit(address sender, uint amount);
 
-	event LogBuy(address receiver, uint amount);
-	event LogTransfer(address sender, address to, uint amount);
-
-
-	function status() internal {
-
-
-	//stablish the buy price & sell price with the spread configured in the contract
-	
-		buyPrice=(this.balance/totalSupply);
-		sellPrice=buyPrice-(buyPrice*spread)/100;
-		
-
-
-	}
-
-
-
-
-	function buy() public payable {
-	
-
-			if (frozenAccount[msg.sender]) revert();                        // Check if frozen   
-				
-				if(buyPrice<minPrice) {
-				buyPrice=minPrice;
-				}
-
-			 if (msg.sender.balance < msg.value) revert();                 // Check if the sender has enought eth to buy
-			 if (msg.sender.balance + msg.value < msg.sender.balance) revert(); //check for overflows
-			 
-			uint dec=decimals; 
-					 
-			uint amount = (msg.value / buyPrice)*(10**dec) ;                // calculates the amount
-			 
-			if (amount <= 0) revert();  //check amount overflow
-			if (balances[msg.sender] + amount < balances[msg.sender]) revert(); // Check for overflows
-			if (balances[this] < amount) revert();            // checks if it has enough to sell
-
-			balances[this] -= amount;                         // subtracts amount from seller's balance
-			balances[msg.sender] += amount;                   // adds the amount to buyer's balance
-
-			Transfer(this, msg.sender, amount);         //send the tokens to the sendedr
-				//update status variables of the contract
-			status();
-
-		
-	}
-
-
-
-	function deposit() public payable returns(bool success) {
-	// Check for overflows;
-		if (this.balance + msg.value < this.balance) revert(); // Check for overflows
-   
-	//executes event to reflect the changes
-		LogDeposit(msg.sender, msg.value);
-		
-		//update contract status
-		 status();
-		return true;
-	}
-
-
-
-
-
-	function sell(uint256 amount) public {
-	
-
-		if (frozenAccount[msg.sender]) revert();                        // Check if frozen   
-		   uint dec=decimals; 
-			if (balances[this] + amount < balances[this]) revert(); // Check for overflows
-			if (balances[msg.sender] < amount*(10**dec) ) revert();        // checks if the sender has enough to sell
-		   
-
-			if(sellPrice<minPrice) {
-				sellPrice=minPrice-(minPrice*spread)/100;
-		 
-			}
-			
-
-			balances[msg.sender] -= amount*(10**dec);                   // subtracts the amount from seller's balance
-			balances[this] += amount*(10**dec);                         // adds the amount to owner's balance
-		// Sends ether to the seller. It's important
-	  
- 
-		if (!msg.sender.send(amount*sellPrice)) {
-			revert();                                         // to do this last to avoid recursion attacks
-		} else {
-			 // executes an event reflecting on the change
-			 Transfer(msg.sender, this, amount*(10**dec));
-			 //update contract status
-			 status();
-
-			
-		}  
-  
+	/* Initializes contract with initial supply tokens to the creator of the contract */
+	function TokenFederalReserve(uint256 initialSupply, string tokenName, string tokenSymbol) public {
+		balances[msg.sender] = initialSupply;              // Give the creator all initial tokens
+		totalSupply = initialSupply;                        // Update total supply
+		name = tokenName;                                   // Set the name for display purposes
+		symbol = tokenSymbol;                               // Set the symbol for display purposes
+		// decimals = decimalUnits;                            // Amount of decimals for display purposes
 	}
 
     function () public payable {
 		buy();   // Allow to buy tokens sending ether direcly to contract
 	}
+
+    function applySpread(uint256 askPrice) private pure returns (uint256 bidPrice) {
+    	bidPrice = askPrice - (spread * askPrice) / 100;
+    	return bidPrice;
+    }
+
+	function deposit() public payable returns(bool success) {
+        // Check for overflows;
+		assert (this.balance + msg.value >= this.balance); // Check for overflows
+   
+        //executes event to reflect the changes
+		LogDeposit(msg.sender, msg.value);
+		
+		//update contract status
+		status();
+		return true;
+	}
+
+	function buy() public payable {
+
+        require (msg.sender.balance >= msg.value);                 // Check if the sender has enought eth to buy
+        assert (msg.sender.balance + msg.value >= msg.sender.balance); //check for overflows
+         
+        if (buyPrice < minPrice) {
+            buyPrice = minPrice;
+        }
+        uint amount = (msg.value * tokenUnit)/buyPrice ;                // calculates the amount
+        assert (amount > 0);  //check amount overflow
+        require (balances[this] >= amount);            // checks if it has enough to sell
+
+        uint finalBalance = balances[msg.sender] + amount;
+        assert (finalBalance >= balances[msg.sender]); // Check for overflows
+
+        balances[this] -= amount;                         // subtracts amount from seller's balance
+        balances[msg.sender] = finalBalance;                   // adds the amount to buyer's balance
+
+        Transfer(this, msg.sender, amount);         //send the tokens to the sendedr
+ 
+        //update status variables of the contract
+        status();
+	}
+
+	function sell(uint256 amount) public {
+        uint _amount = amount * tokenUnit;
+        require (balances[msg.sender] >= _amount );        // checks if the sender has enough to sell
+
+        uint finalBalance = balances[this] + _amount;
+        assert (finalBalance >= balances[this]); // Check for overflows
+
+        balances[msg.sender] -= _amount;                   // subtracts the amount from seller's balance
+        balances[this] = finalBalance;  // adds the amount to owner's balance
+
+       //update contract status
+        status();
+
+        
+        uint minSellPrice = applySpread(minPrice);
+        if(sellPrice < minSellPrice) {
+            sellPrice = minSellPrice;
+        }
+		// Sends ether to the seller. It's important
+        // to do this last to avoid recursion attacks
+		msg.sender.transfer(amount * sellPrice);
+            
+        // executes an event reflecting on the change
+        Transfer(msg.sender, this, _amount);
+	}
+
+	function status() internal {
+        //stablish the buy price & sell price with the spread configured in the contract
+
+		buyPrice = this.balance / totalSupply;
+		sellPrice = applySpread(buyPrice);
+	}
+
+	/* Approve and then communicate the approved contract in a single tx */
+	function approveAndCall(address _spender, uint256 _value, bytes _extraData) public onlyOwner returns (bool success) {    
+
+        tokenRecipient spender = tokenRecipient(_spender);
+
+		if (approve(_spender, _value)) {
+			spender.receiveApproval(msg.sender, _value, this, _extraData);
+			return true;
+		}
+	}
+}
+
+
+contract tokenRecipient {
+    function receiveApproval(address _from, uint256 _value, address _token, bytes _extraData) public ; 
 }
